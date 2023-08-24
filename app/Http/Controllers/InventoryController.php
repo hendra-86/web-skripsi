@@ -22,19 +22,26 @@ class InventoryController extends Controller
         }
 
         $forecastData = [];
-
         foreach ($sales as $sale) {
             $quantity = $sale->total_quantity;
-
             $monthlySales = Penjualan::select(\DB::raw('SUM(quantity) as total_quantity'))
                 ->where('name', $sale->name)
-                ->where('date', '>=', date('Y-m', strtotime($sale->month . '-01 months')) . '-01')
+                ->where('date', '>=', date('Y-m', strtotime($sale->month . '-1 months')) . '-01')
                 ->where('date', '<=', $sale->month . '-01')
                 ->groupBy(\DB::raw('DATE_FORMAT(date, "%Y-%m")'))
                 ->pluck('total_quantity')
                 ->toArray();
 
             $forecast = $this->singleExponentialSmoothing($monthlySales, 0.7);
+            if (empty($forecast)) {
+                $average = Penjualan::select(\DB::raw('SUM(quantity) as total_quantity'))
+                    ->where('name', $sale->name)
+                    ->groupBy(\DB::raw('DATE_FORMAT(date, "%Y-%m")'))
+                    ->pluck('total_quantity')
+                    ->avg();
+                $forecast = [$average];
+                $monthlySales = [$quantity];
+            }
             $nextMonthForecast = end($forecast);
             $mape = $this->calculateMAPE($monthlySales, $forecast);
 
@@ -47,7 +54,6 @@ class InventoryController extends Controller
                 'mape' => $mape,
             ];
         }
-
         return view('forecast', compact('forecastData'));
     }
 
@@ -61,14 +67,12 @@ class InventoryController extends Controller
         }
 
         for ($i = 0; $i < $n; $i++) {
-            if($i == 0){
+            if ($i == 0) {
                 $smoothedData[0] = $data[0];
-            }
-            else{
+            } else {
                 $smoothedData[$i] = $alpha * $data[$i] + (1 - $alpha) * ($smoothedData[$i - 1] ?? 0);
-            } 
+            }
         }
-
         return $smoothedData;
     }
 
